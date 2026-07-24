@@ -1,0 +1,63 @@
+// =============================================================================
+// MIDNIGHT NETWORK COMPACT SMART CONTRACT: JOURNAL
+// =============================================================================
+//
+// PRIVACY MODEL:
+//
+// 1. PUBLIC LEDGER STATE (On-Chain, visible to anyone):
+//    - owner: The public key of the journal's owner (Bytes<32>).
+//    - entryCount: A counter tracking how many entries have been written.
+//    - lastEntryHash: The cryptographic hash of the latest private entry.
+//
+// 2. PRIVATE WITNESSES (Off-Chain, never on-chain):
+//    - localSecretKey(): The private secret key of the journal owner.
+//    - getPrivateEntryHash(): The private cryptographic hash of the journal entry text.
+//
+// 3. ZERO-KNOWLEDGE PROOF:
+//    - The user proves they possess the `localSecretKey` corresponding to the
+//      on-chain `owner` public key.
+//    - The user discloses the new `entryHash` (derived from their private entry)
+//      without revealing the entry content.
+// =============================================================================
+
+pragma language_version 0.23;
+
+import CompactStandardLibrary;
+
+// Public Ledger State
+export ledger owner: Bytes<32>;
+export ledger entryCount: Counter;
+export ledger lastEntryHash: Bytes<32>;
+
+// Private Witnesses
+witness localSecretKey(): Bytes<32>;
+witness getPrivateEntryHash(): Bytes<32>;
+
+constructor() {
+  owner = pad(32, "");
+  lastEntryHash = pad(32, "");
+}
+
+// Initialize the journal owner's public key (run once)
+export circuit initialize(): [] {
+  assert(owner == pad(32, ""), "Journal owner is already initialized");
+  owner = disclose(publicKey(localSecretKey()));
+}
+
+// Add a private entry to the journal
+export circuit addEntry(): [] {
+  // 1. Verify owner signature / ownership
+  assert(owner == publicKey(localSecretKey()), "Caller is not the authorized owner of this journal");
+
+  // 2. Fetch the private entry hash from the private state witness
+  const entryHash = getPrivateEntryHash();
+
+  // 3. Update the public ledger with the entry hash and increment the counter
+  lastEntryHash = disclose(entryHash);
+  entryCount.increment(1);
+}
+
+// Pure circuit to compute public key from secret key
+export circuit publicKey(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "journal:owner:"), sk]);
+}

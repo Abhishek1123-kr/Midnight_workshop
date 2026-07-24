@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "file": "index.js",
+  "sourceRoot": "../../../",
+  "sources": ["contracts/journal.compact", "compiler/standard-library.compact"],
+  "names": [],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;EAmCA;;;;;;;;;;;;;;;;MAMA,AAAA,UAGC;;;;;;;;;;;;;;;;;;;;;;OAAA;MAGD,AAAA,QAUC;;;;;;;;;;;;;;;;;;;;;;OAAA;MAGD,AAAA,SAEC;;OAAA;;;;;;;;;;GAxBA;EAHD;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;IARA;;;;;;;;;yEAA+B;IAC/B;;;;;;;;;yEAAkC;IAClC;;;;;;;;;yEAAuC;IAOrC;;;;;;;;;yEAAK;IACL;;;;;;;;;yEAAa;;;;;;;GACd;ECtCD,AAAA,kBAAA;oEAAA;;;EDgCA,AAAA,iBAAoC;;0DAApC,cAAoC;;;;;;;;;;;;;;GAAA;EACpC,AAAA,sBAAyC;;0DAAzC,mBAAyC;;;;;;;;;;;;;;GAAA;EAQzC,AAAA,aAGC;kEAFQ;;;;;;;;;;;uIAAK;;;UACZ,KAAK;;IAAL;;;;;;;2HAAA,KAAK;;yEAAA;;GACN;EAGD,AAAA,WAUC;kEARQ;;;;;;;;;;;uIAAK;;;;UAGN,WAAiC;IAGvC;;;;;;;2HAAyB,WAAS;;yEAArB;UACb,KAAU;IAAV;;;;;;;;;;6FAAA,KAAU;;;;wEAAA;;GACX;EAGD,AAAA,YAEC,CAFwB,IAAa;;mCACoC,IAAE;GAC3E;;;;;;;;;;;;;;;;;;;;;;;;IAnCD;qCAAA;;;;;;;;;;;0GAA+B;KAAA;IAC/B;qCAAA;;;;;;;;;;;0GAAkC;KAAA;IAClC;qCAAA;;;;;;;;;;;0GAAuC;KAAA;;;;;;;;;;;EA+BvC,AAAA,SAEC;;;;UAFwB,IAAa;;;;;;;;uCAAb,IAAa;GAErC;;;;"
+}
