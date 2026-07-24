@@ -5,9 +5,13 @@
 // via CLI using a seed phrase (e.g. from the MIDNIGHT_SEED environment variable).
 // =============================================================================
 
+import { WebSocket } from 'ws';
+globalThis.WebSocket = WebSocket;
+
 import { PreprodRemoteConfig } from '../demo/bboard-cli/src/config.js';
 import { MidnightWalletProvider } from '../demo/bboard-cli/src/midnight-wallet-provider.js';
 import { syncWallet, waitForUnshieldedFunds } from '../demo/bboard-cli/src/wallet-utils.js';
+import { unshieldedToken } from '@midnight-ntwrk/midnight-js-protocol/ledger';
 import {
   CompiledJournalContractContract,
   JOURNAL_PRIVATE_STATE_KEY,
@@ -22,7 +26,7 @@ import * as pino from 'pino';
 import * as path from 'path';
 import crypto from 'crypto';
 
-const logger = pino.pino({ level: 'info' });
+const logger = pino.pino({ level: 'debug' });
 
 const run = async () => {
   logger.info("Initializing deploy to Preprod...");
@@ -32,7 +36,16 @@ const run = async () => {
   const zkConfigPath = path.resolve('managed', 'journal');
   
   const env = config.getEnvironment(logger);
-  const envConfig = env.getEnvironmentConfiguration();
+  const envConfig = {
+    walletNetworkId: 'preprod',
+    networkId: 'preprod' as any,
+    indexer: 'https://indexer.preprod.midnight.network/api/v4/graphql',
+    indexerWS: 'wss://indexer.preprod.midnight.network/api/v4/graphql/ws',
+    node: 'https://rpc.preprod.midnight.network',
+    nodeWS: 'wss://rpc.preprod.midnight.network',
+    faucet: 'https://midnight-tmnight-preprod.nethermind.dev/',
+    proofServer: 'http://127.0.0.1:6300',
+  };
   
   // 2. Load or generate seed
   let seed = process.env.MIDNIGHT_SEED;
@@ -55,7 +68,7 @@ const run = async () => {
   
   // Check if we need to fund
   logger.info("Checking for funds. Please ensure the wallet is funded via the Preprod faucet if it is not.");
-  await waitForUnshieldedFunds(logger, walletProvider.wallet);
+  await waitForUnshieldedFunds(logger, walletProvider.wallet, envConfig, unshieldedToken(), true);
 
   // 4. Initialize contract providers
   const privateStateProvider = levelPrivateStateProvider({

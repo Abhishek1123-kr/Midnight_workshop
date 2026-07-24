@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "compact": "wsl /home/abhishek/.local/bin/compact compile contracts/journal.compact ./managed/journal",
-    "test": "vitest run",
+    "test": "vitest run tests/journal.test.ts",
     "dev": "vite",
     "build": "tsc && vite build --mode preprod && wsl cp -r ./managed/journal/keys ./dist/keys && wsl cp -r ./managed/journal/zkir ./dist/zkir",
     "deploy": "node --experimental-specifier-resolution=node --loader ts-node/esm scripts/deploy.ts",

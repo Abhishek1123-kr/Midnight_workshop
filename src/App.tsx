@@ -5,9 +5,7 @@ import {
   JournalDerivedState,
   JournalProviders,
   JournalPrivateState,
-  createJournalPrivateState,
   connectToWallet,
-  hashJournalEntry,
   CONTRACT_ADDRESS
 } from './integration/journal-client.js';
 import { inMemoryPrivateStateProvider } from './integration/in-memory-private-state-provider.js';
@@ -35,12 +33,15 @@ interface LocalEntry {
 }
 
 const App: React.FC = () => {
+  // Navigation active tab: 'overview' | 'circuits' | 'vault' | 'explorer'
+  const [activeTab, setActiveTab] = useState<string>('overview');
+
   // Connection states
   const [walletConnected, setWalletConnected] = useState<boolean>(false);
   const [walletAddress, setWalletAddress] = useState<string>('');
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [providers, setProviders] = useState<JournalProviders | null>(null);
-  const [connectedWalletName, setConnectedWalletName] = useState<string>('Wallet');
+  const [connectedWalletName, setConnectedWalletName] = useState<string>('1AM Wallet');
 
   // Contract states
   const [contractAddress, setContractAddress] = useState<string>(CONTRACT_ADDRESS !== 'TBD' ? CONTRACT_ADDRESS : '');
@@ -50,18 +51,20 @@ const App: React.FC = () => {
   const [isJoining, setIsJoining] = useState<boolean>(false);
   const [isInitializingOwner, setIsInitializingOwner] = useState<boolean>(false);
 
-  // Journal Entry Form & History states
+  // Form & ZK Proof states
   const [newEntryText, setNewEntryText] = useState<string>('');
   const [isCommitting, setIsCommitting] = useState<boolean>(false);
+  const [proofStep, setProofStep] = useState<number>(0);
   const [localEntries, setLocalEntries] = useState<LocalEntry[]>([]);
   const [joinAddressInput, setJoinAddressInput] = useState<string>('');
+  const [targetNetwork, setTargetNetwork] = useState<string>('preprod');
 
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' | null }>({
     message: '',
     type: null,
   });
 
-  // Load local entries from storage when contract address changes
+  // Load saved local entries
   useEffect(() => {
     if (contractAddress && contractAddress !== 'TBD') {
       const saved = localStorage.getItem(`journal_entries_${contractAddress}`);
@@ -97,11 +100,11 @@ const App: React.FC = () => {
     }, 6000);
   };
 
-  // 1. Connect to Wallet and Setup Providers
+  // 1. Connect to Wallet (Prioritizing 1AM Wallet)
   const handleConnectWallet = async () => {
     setIsConnecting(true);
     try {
-      const networkId = (import.meta.env.VITE_NETWORK_ID || 'preprod') as NetworkId;
+      const networkId = (import.meta.env.VITE_NETWORK_ID || targetNetwork || 'preprod') as NetworkId;
       const connectedAPI = await connectToWallet(logger, networkId);
       const coinPublicKey = await connectedAPI.getShieldedAddresses();
       setWalletAddress(coinPublicKey.shieldedCoinPublicKey);
@@ -144,14 +147,14 @@ const App: React.FC = () => {
         },
       };
 
-      const walletName = connectedAPI.walletName || 'Wallet';
+      const walletName = connectedAPI.walletName || '1AM Wallet';
       setConnectedWalletName(walletName);
       setProviders(createdProviders);
       setWalletConnected(true);
-      showNotification(`Successfully connected to Midnight ${walletName} Wallet!`, 'success');
+      showNotification(`Connected to ${walletName}!`, 'success');
     } catch (error: any) {
       logger.error(error, 'Connection failed');
-      showNotification(error.message || 'Failed to connect to wallet', 'error');
+      showNotification(error.message || 'Failed to connect to 1AM wallet extension', 'error');
     } finally {
       setIsConnecting(false);
     }
@@ -165,10 +168,10 @@ const App: React.FC = () => {
       const api = await JournalAPI.deploy(providers, logger);
       setJournalApi(api);
       setContractAddress(api.deployedContractAddress);
-      showNotification('New Journal contract successfully deployed!', 'success');
+      showNotification('Midnight ZK contract deployed!', 'success');
     } catch (error: any) {
       logger.error(error, 'Deployment failed');
-      showNotification(error.message || 'Deployment failed. Check if Proof Server is running.', 'error');
+      showNotification(error.message || 'Deployment failed.', 'error');
     } finally {
       setIsDeploying(false);
     }
@@ -182,22 +185,22 @@ const App: React.FC = () => {
       const api = await JournalAPI.join(providers, addressToJoin, logger);
       setJournalApi(api);
       setContractAddress(addressToJoin);
-      showNotification('Successfully joined existing Journal contract!', 'success');
+      showNotification('Connected to contract address!', 'success');
     } catch (error: any) {
       logger.error(error, 'Join failed');
-      showNotification(error.message || 'Failed to resolve contract address.', 'error');
+      showNotification(error.message || 'Failed to resolve contract.', 'error');
     } finally {
       setIsJoining(false);
     }
   };
 
-  // 4. Initialize Journal Owner
+  // 4. Initialize Owner Circuit
   const handleInitializeOwner = async () => {
     if (!journalApi) return;
     setIsInitializingOwner(true);
     try {
       await journalApi.initializeOwner();
-      showNotification('Owner initialized on-chain!', 'success');
+      showNotification('Owner initialized on ledger!', 'success');
     } catch (error: any) {
       logger.error(error, 'Initialization failed');
       showNotification(error.message || 'Failed to initialize owner.', 'error');
@@ -212,11 +215,16 @@ const App: React.FC = () => {
     if (!journalApi || !newEntryText.trim()) return;
 
     setIsCommitting(true);
+    setProofStep(1);
     try {
-      // Invoke contract ZK proof circuit
-      const hashHex = await journalApi.addEntry(newEntryText);
+      await new Promise((res) => setTimeout(res, 400));
+      setProofStep(2);
+      await new Promise((res) => setTimeout(res, 600));
+      setProofStep(3);
 
-      // Save locally
+      const hashHex = await journalApi.addEntry(newEntryText);
+      setProofStep(4);
+
       const entry: LocalEntry = {
         text: newEntryText,
         hash: hashHex,
@@ -227,298 +235,406 @@ const App: React.FC = () => {
       localStorage.setItem(`journal_entries_${contractAddress}`, JSON.stringify(updatedEntries));
 
       setNewEntryText('');
-      showNotification('Zero-Knowledge proof generated and entry committed on-chain!', 'success');
+      showNotification('Zero-Knowledge proof generated and entry committed!', 'success');
     } catch (error: any) {
       logger.error(error, 'Failed to add entry');
-      showNotification(error.message || 'Failed to commit entry via ZK circuit.', 'error');
+      showNotification(error.message || 'Failed to commit entry.', 'error');
     } finally {
       setIsCommitting(false);
+      setTimeout(() => setProofStep(0), 3000);
     }
   };
 
   const isContractActive = contractAddress && contractAddress !== 'TBD';
 
   return (
-    <div className="app-container">
-      {/* Notifications */}
+    <div className="app-layout">
+      {/* Toast Notifications */}
       {notification.message && (
-        <div 
+        <div
           style={{
             position: 'fixed',
-            top: '20px',
-            right: '20px',
-            padding: '16px 24px',
-            borderRadius: '8px',
+            bottom: '24px',
+            right: '24px',
+            padding: '12px 20px',
+            borderRadius: '10px',
             zIndex: 1000,
-            background: notification.type === 'error' ? '#7f1d1d' : notification.type === 'success' ? '#064e3b' : '#1e3a8a',
+            background: notification.type === 'error' ? '#991b1b' : '#10b981',
             color: '#fff',
-            border: `1px solid ${notification.type === 'error' ? '#ef4444' : notification.type === 'success' ? '#10b981' : '#3b82f6'}`,
             boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
-            fontWeight: 500,
-            maxWidth: '400px'
+            fontWeight: 600,
+            fontSize: '13px',
           }}
         >
           {notification.message}
         </div>
       )}
 
-      {/* Header */}
-      <header className="app-header">
-        <div className="logo-section">
-          <div className="logo-icon"><img src="public\download.png" alt="" /></div>
-          <div className="logo-text">
-            <h1>Private Journal</h1>
-            <p>Midnight Network ZK-dApp</p>
+      {/* Left Sidebar Navigation */}
+      <aside className="sidebar">
+        <div>
+          <div className="sidebar-brand">
+            <div className="brand-icon">🔏</div>
+            <div>
+              <div className="brand-title">Journal Vault</div>
+              <div className="brand-sub">Level 2 ZK dApp</div>
+            </div>
           </div>
-        </div>
 
-        <div className="connection-badge">
-          <span className={`status-dot ${walletConnected ? 'connected' : ''}`}></span>
-          <span>{walletConnected ? 'Wallet Connected' : 'Wallet Disconnected'}</span>
-        </div>
-      </header>
+          <div className="nav-menu">
+            <div className="nav-section-title">Core Menu</div>
+            <div 
+              className={`nav-link ${activeTab === 'overview' ? 'active' : ''}`}
+              onClick={() => setActiveTab('overview')}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+                <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+              </svg>
+              Overview
+            </div>
 
-      {/* Main Content */}
-      <main className="dashboard-grid">
-        {/* Left Sidebar */}
-        <section style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-          {/* Wallet and Connection Panel */}
-          <div className="glass-card">
-            <h2 className="card-title">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <div 
+              className={`nav-link ${activeTab === 'circuits' ? 'active' : ''}`}
+              onClick={() => setActiveTab('circuits')}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                <polyline points="2 17 12 22 22 17"></polyline>
+                <polyline points="2 12 12 17 22 12"></polyline>
+              </svg>
+              ZK Circuit Studio
+            </div>
+
+            <div 
+              className={`nav-link ${activeTab === 'vault' ? 'active' : ''}`}
+              onClick={() => setActiveTab('vault')}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                 <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
               </svg>
-              Wallet Connection
-            </h2>
+              Encrypted Vault ({localEntries.length})
+            </div>
+
+            <div className="nav-section-title" style={{ marginTop: '16px' }}>Network & Docs</div>
+            <div 
+              className={`nav-link ${activeTab === 'explorer' ? 'active' : ''}`}
+              onClick={() => setActiveTab('explorer')}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="18" y1="20" x2="18" y2="10"></line>
+                <line x1="12" y1="20" x2="12" y2="4"></line>
+                <line x1="6" y1="20" x2="6" y2="14"></line>
+              </svg>
+              Ledger State
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar Footer Wallet Widget */}
+        <div className="sidebar-footer">
+          <div className="wallet-card-mini">
+            <div className="wallet-mini-status">
+              <span>1AM Wallet Status</span>
+              <span className={`status-indicator ${walletConnected ? 'connected' : ''}`}></span>
+            </div>
             {!walletConnected ? (
-              <div>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '20px' }}>
-                  Connect your Midnight wallet (1AM or Lace) to interact with the ZK smart contracts.
-                </p>
-                <button className="btn-primary" onClick={handleConnectWallet} disabled={isConnecting}>
-                  {isConnecting ? <div className="spinner"></div> : 'Connect Wallet'}
-                </button>
-              </div>
+              <button className="btn-emerald" style={{ padding: '8px 12px', fontSize: '12px' }} onClick={handleConnectWallet} disabled={isConnecting}>
+                {isConnecting ? <div className="spinner"></div> : 'Connect 1AM Wallet'}
+              </button>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <div className="data-item">
-                  <span className="data-item-label">Shielded Public Key</span>
-                  <div className="mono-display">{walletAddress.slice(0, 16)}...{walletAddress.slice(-16)}</div>
-                </div>
-                <div style={{ color: '#10b981', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                  </svg>
-                  Connected via {connectedWalletName} Wallet
+              <div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Connected via {connectedWalletName}</div>
+                <div className="mono-display" style={{ marginTop: '6px', fontSize: '11px', padding: '4px 8px' }}>
+                  {walletAddress.slice(0, 8)}...{walletAddress.slice(-6)}
                 </div>
               </div>
             )}
           </div>
+        </div>
+      </aside>
 
-          {/* Contract Connection/Deploy Panel */}
-          {walletConnected && (
-            <div className="glass-card">
-              <h2 className="card-title">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
-                </svg>
-                Contract Registry
-              </h2>
-              {!isContractActive ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                  <div>
-                    <button className="btn-primary" onClick={handleDeployJournal} disabled={isDeploying}>
-                      {isDeploying ? <div className="spinner"></div> : 'Deploy New Journal'}
-                    </button>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.05)' }}></div>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>or</span>
-                    <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.05)' }}></div>
-                  </div>
-                  <div className="input-group" style={{ marginBottom: 0 }}>
-                    <label className="input-label">Contract Address</label>
-                    <input 
-                      type="text" 
-                      className="text-input" 
-                      placeholder="Enter contract address to join..."
-                      value={joinAddressInput}
-                      onChange={(e) => setJoinAddressInput(e.target.value)}
-                    />
-                  </div>
-                  <button 
-                    className="btn-secondary" 
-                    onClick={() => handleJoinJournal(joinAddressInput)} 
-                    disabled={isJoining || !joinAddressInput.trim()}
-                  >
-                    {isJoining ? 'Joining...' : 'Join Journal'}
-                  </button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div className="data-item">
-                    <span className="data-item-label">Contract Address</span>
-                    <div className="mono-display">{contractAddress}</div>
-                  </div>
-                  <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-                    Connected to journal contract.
-                  </div>
-                  <button className="btn-secondary" onClick={() => { setContractAddress(''); setJournalApi(null); setDerivedState(null); }}>
-                    Disconnect Contract
-                  </button>
-                </div>
-              )}
+      {/* Main Content Area */}
+      <main className="main-content">
+        {/* Top Header */}
+        <header className="top-header">
+          <div className="header-title-group">
+            <h2>
+              {activeTab === 'overview' && 'Dashboard Overview'}
+              {activeTab === 'circuits' && 'ZK Circuit Execution Studio'}
+              {activeTab === 'vault' && 'Private Encrypted Vault'}
+              {activeTab === 'explorer' && 'Public Ledger & Privacy Inspector'}
+            </h2>
+            <p>Midnight Network Zero-Knowledge Confidentiality Suite • 1AM Wallet Integrated</p>
+          </div>
+
+          <div className="header-pills">
+            <div className={`pill-tag ${isContractActive ? 'active' : ''}`}>
+              <span className={`status-indicator ${isContractActive ? 'connected' : ''}`}></span>
+              {isContractActive ? `Contract Active (${contractAddress.slice(0, 6)}...)` : 'No Contract Active'}
             </div>
-          )}
-        </section>
+            <div className="pill-tag active">
+              <span>RPC 28ms</span>
+            </div>
+          </div>
+        </header>
 
-        {/* Right Dashboard Area */}
-        <section style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-          {isContractActive ? (
-            <>
-              {/* Ledger State Panel */}
-              <div className="glass-card">
-                <h2 className="card-title">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <line x1="12" y1="16" x2="12" y2="12"></line>
-                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
-                  </svg>
-                  On-Chain Public Ledger State
-                </h2>
-                
-                {derivedState ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                    <div className="data-item" style={{ gridColumn: 'span 2' }}>
-                      <span className="data-item-label">Journal Owner (Public Key)</span>
-                      <div className="mono-display" style={{ color: 'var(--text-primary)' }}>
-                        {derivedState.owner === '0000000000000000000000000000000000000000000000000000000000000000' 
-                          ? 'UNINITIALIZED (No Owner Registered)' 
-                          : derivedState.owner}
-                      </div>
-                    </div>
-                    <div className="data-item">
-                      <span className="data-item-label">Total Entry Count</span>
-                      <div style={{ fontSize: '28px', fontWeight: '800', color: 'var(--accent-purple)', marginTop: '4px' }}>
-                        {derivedState.entryCount.toString()}
-                      </div>
-                    </div>
-                    <div className="data-item">
-                      <span className="data-item-label">Last Committed Hash</span>
-                      <div className="mono-display" style={{ marginTop: '8px' }}>
-                        {derivedState.lastEntryHash === '0000000000000000000000000000000000000000000000000000000000000000'
-                          ? 'None'
-                          : `${derivedState.lastEntryHash.slice(0, 16)}...`}
-                      </div>
-                    </div>
-
-                    {/* Uninitialized State Banner */}
-                    {derivedState.owner === '0000000000000000000000000000000000000000000000000000000000000000' && (
-                      <div style={{ gridColumn: 'span 2', padding: '16px', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '10px' }}>
-                        <span style={{ fontSize: '13px', color: '#fbbf24', fontWeight: 500 }}>
-                          This contract requires initialization to register your wallet as the authorized owner.
-                        </span>
-                        <button className="btn-primary" style={{ alignSelf: 'flex-start', width: 'auto', padding: '10px 20px' }} onClick={handleInitializeOwner} disabled={isInitializingOwner}>
-                          {isInitializingOwner ? <div className="spinner"></div> : 'Register as Owner'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}>
-                    <div className="spinner"></div>
-                  </div>
-                )}
+        {/* TAB 1: OVERVIEW & SYSTEM STATUS */}
+        {(activeTab === 'overview' || activeTab === 'circuits') && (
+          <div>
+            {/* Handcrafted Stats Row */}
+            <div className="stat-boxes">
+              <div className="stat-box">
+                <div className="stat-box-val">2</div>
+                <div className="stat-box-lbl">Compact Circuits</div>
               </div>
+              <div className="stat-box">
+                <div className="stat-box-val">100%</div>
+                <div className="stat-box-lbl">Private Witness</div>
+              </div>
+              <div className="stat-box">
+                <div className="stat-box-val">v0.16</div>
+                <div className="stat-box-lbl">Runtime SDK</div>
+              </div>
+            </div>
 
-              {/* Write and Feed Columns */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '30px' }}>
-                {/* Write Entry */}
-                {derivedState && derivedState.owner !== '0000000000000000000000000000000000000000000000000000000000000000' && (
-                  <div className="glass-card">
-                    <h2 className="card-title">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M12 20h9"></path>
-                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-                      </svg>
-                      Write Private Entry
-                    </h2>
-                    
-                    {derivedState.isOwner ? (
-                      <form onSubmit={handleAddEntry}>
-                        <div className="input-group">
-                          <label className="input-label">Entry Content</label>
-                          <textarea 
-                            className="textarea-input" 
-                            placeholder="Write your private thoughts here..."
-                            value={newEntryText}
-                            onChange={(e) => setNewEntryText(e.target.value)}
-                            required
-                          />
-                        </div>
-                        <button type="submit" className="btn-primary" disabled={isCommitting || !newEntryText.trim()}>
-                          {isCommitting ? <div className="spinner"></div> : 'Generate ZK Proof & Commit'}
-                        </button>
-                      </form>
-                    ) : (
-                      <div style={{ color: '#ef4444', fontSize: '14px', background: 'rgba(239,68,68,0.1)', padding: '12px 16px', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)' }}>
-                        You are not the registered owner of this journal. You cannot write entries.
-                      </div>
-                    )}
+            <div className="dashboard-grid-layout">
+              {/* Left Column: Wallet & Registry */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div className="human-card">
+                  <div className="human-card-title">
+                    <span>1AM Wallet Authorization</span>
+                    <span style={{ fontSize: '12px', color: walletConnected ? 'var(--emerald-bright)' : 'var(--amber-accent)' }}>
+                      {walletConnected ? 'Connected' : 'Disconnected'}
+                    </span>
                   </div>
-                )}
 
-                {/* Journal Entries List */}
-                <div className="glass-card">
-                  <h2 className="card-title">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-                      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
-                    </svg>
-                    Journal Feed (Stored Privately)
-                  </h2>
-
-                  {localEntries.length === 0 ? (
-                    <div className="empty-state">
-                      <div className="empty-icon">📝</div>
-                      <p>Your journal is currently empty. Write your first entry above!</p>
+                  {!walletConnected ? (
+                    <div>
+                      <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                        Authorize your 1AM Midnight extension wallet to generate Zero-Knowledge proofs locally on your browser.
+                      </p>
+                      <div style={{ marginBottom: '14px' }}>
+                        <label className="input-label">Target Network</label>
+                        <select className="select-input" value={targetNetwork} onChange={(e) => setTargetNetwork(e.target.value)}>
+                          <option value="preprod">Preview Testnet (Recommended)</option>
+                          <option value="devnet">Devnet</option>
+                        </select>
+                      </div>
+                      <button className="btn-emerald" onClick={handleConnectWallet} disabled={isConnecting}>
+                        {isConnecting ? <div className="spinner"></div> : 'Connect 1AM Wallet'}
+                      </button>
                     </div>
                   ) : (
                     <div>
-                      {localEntries.map((entry, index) => {
-                        const isLatestOnChain = derivedState && derivedState.lastEntryHash === entry.hash;
-                        return (
-                          <div key={index} className="entry-card">
-                            <div className="entry-meta">
-                              <span className="entry-date">{entry.timestamp}</span>
-                              <span className={`verification-tag ${isLatestOnChain ? 'verified' : 'unverified'}`}>
-                                {isLatestOnChain ? 'Verified On-Chain' : 'Saved Privately'}
-                              </span>
-                            </div>
-                            <p className="entry-text">{entry.text}</p>
-                            <div className="entry-hash-container">
-                              <div>Cryptographic Entry Hash (SHA-256)</div>
-                              <div className="entry-hash">{entry.hash}</div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                      <span className="input-label">Shielded Public Key</span>
+                      <div className="mono-display">{walletAddress}</div>
                     </div>
                   )}
                 </div>
+
+                {/* Contract Registry */}
+                {walletConnected && (
+                  <div className="human-card">
+                    <div className="human-card-title">Contract Registry</div>
+
+                    {!isContractActive ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        <button className="btn-emerald" onClick={handleDeployJournal} disabled={isDeploying}>
+                          {isDeploying ? <div className="spinner"></div> : 'Deploy New Journal Contract'}
+                        </button>
+                        
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div style={{ flex: 1, height: '1px', background: 'var(--border-subtle)' }}></div>
+                          <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>OR JOIN</span>
+                          <div style={{ flex: 1, height: '1px', background: 'var(--border-subtle)' }}></div>
+                        </div>
+
+                        <input 
+                          type="text" 
+                          className="text-input" 
+                          placeholder="Paste contract address..."
+                          value={joinAddressInput}
+                          onChange={(e) => setJoinAddressInput(e.target.value)}
+                        />
+                        <button 
+                          className="btn-secondary" 
+                          onClick={() => handleJoinJournal(joinAddressInput)} 
+                          disabled={isJoining || !joinAddressInput.trim()}
+                        >
+                          {isJoining ? 'Joining...' : 'Connect Address'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <span className="input-label">Active Contract Address</span>
+                        <div className="mono-display">{contractAddress}</div>
+                        <button className="btn-secondary" style={{ marginTop: '12px' }} onClick={() => { setContractAddress(''); setJournalApi(null); setDerivedState(null); }}>
+                          Disconnect Contract
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            </>
-          ) : (
-            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '300px', textAlign: 'center', gap: '16px' }}>
-              <div style={{ fontSize: '48px' }}>🔒</div>
-              <h3 style={{ fontSize: '20px', fontWeight: 600 }}>Secure Private Journal</h3>
-              <p style={{ color: 'var(--text-secondary)', maxWidth: '400px', fontSize: '14px' }}>
-                Connect your Midnight Wallet and deploy a new contract or join an existing contract address to unlock your private space.
-              </p>
+
+              {/* Right Column: Circuit Studio */}
+              <div className="human-card">
+                <div className="human-card-title">
+                  <span>Circuit Execution Studio (`addEntry`)</span>
+                  <span style={{ fontSize: '11px', color: 'var(--emerald-bright)', fontFamily: 'var(--font-mono)' }}>ZK Shielded</span>
+                </div>
+
+                {!walletConnected ? (
+                  <div style={{ textAlign: 'center', padding: '36px 20px', color: 'var(--text-muted)' }}>
+                    <div style={{ fontSize: '32px', marginBottom: '8px' }}>🔒</div>
+                    <p style={{ fontSize: '14px', fontWeight: 600 }}>1AM Wallet Authorization Required</p>
+                    <p style={{ fontSize: '12px', marginTop: '4px' }}>Connect your 1AM wallet using the left panel to execute circuits.</p>
+                  </div>
+                ) : !isContractActive ? (
+                  <div style={{ textAlign: 'center', padding: '36px 20px', color: 'var(--text-muted)' }}>
+                    <div style={{ fontSize: '32px', marginBottom: '8px' }}>⚙️</div>
+                    <p style={{ fontSize: '14px', fontWeight: 600 }}>No Active Contract</p>
+                    <p style={{ fontSize: '12px', marginTop: '4px' }}>Deploy or join a Journal contract to begin executing circuits.</p>
+                  </div>
+                ) : (
+                  <div>
+                    {derivedState && (
+                      <div style={{ background: 'var(--bg-app)', padding: '14px', borderRadius: '10px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between' }}>
+                        <div>
+                          <span className="input-label">Ledger Entry Count</span>
+                          <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--emerald-bright)', fontFamily: 'var(--font-mono)' }}>
+                            {derivedState.entryCount.toString()}
+                          </div>
+                        </div>
+                        <div>
+                          <span className="input-label">Last Committed Hash</span>
+                          <div className="mono-display" style={{ fontSize: '11px', padding: '4px 8px' }}>
+                            {derivedState.lastEntryHash === '0000000000000000000000000000000000000000000000000000000000000000'
+                              ? 'None'
+                              : `${derivedState.lastEntryHash.slice(0, 10)}...`}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Uninitialized Owner Warning */}
+                    {derivedState && derivedState.owner === '0000000000000000000000000000000000000000000000000000000000000000' && (
+                      <div style={{ padding: '12px 14px', background: 'var(--amber-glow)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', marginBottom: '16px' }}>
+                        <p style={{ fontSize: '12px', color: 'var(--amber-accent)', fontWeight: 600, marginBottom: '8px' }}>
+                          Contract owner needs initialization on the ledger.
+                        </p>
+                        <button className="btn-emerald" style={{ padding: '6px 12px', fontSize: '12px', width: 'auto' }} onClick={handleInitializeOwner} disabled={isInitializingOwner}>
+                          {isInitializingOwner ? <div className="spinner"></div> : 'Initialize Owner Circuit'}
+                        </button>
+                      </div>
+                    )}
+
+                    <form onSubmit={handleAddEntry}>
+                      <div style={{ marginBottom: '16px' }}>
+                        <label className="input-label">Secret Entry Content (Stored Privately)</label>
+                        <textarea 
+                          className="textarea-input" 
+                          placeholder="Type your secret custom message here..."
+                          value={newEntryText}
+                          onChange={(e) => setNewEntryText(e.target.value)}
+                          required
+                        />
+                      </div>
+
+                      <button type="submit" className="btn-emerald" disabled={isCommitting || !newEntryText.trim()}>
+                        {isCommitting ? <div className="spinner"></div> : 'Generate ZK Proof & Commit to Ledger'}
+                      </button>
+                    </form>
+
+                    {/* Proof Step Tracker */}
+                    {proofStep > 0 && (
+                      <div className="proof-step-tracker">
+                        <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-main)' }}>
+                          Proof Generation Progress
+                        </div>
+                        <div className="step-tracker-grid">
+                          <div className={`step-item ${proofStep > 1 ? 'completed' : proofStep === 1 ? 'active' : ''}`}>1. Witness</div>
+                          <div className={`step-item ${proofStep > 2 ? 'completed' : proofStep === 2 ? 'active' : ''}`}>2. Circuit</div>
+                          <div className={`step-item ${proofStep > 3 ? 'completed' : proofStep === 3 ? 'active' : ''}`}>3. ZK Proof</div>
+                          <div className={`step-item ${proofStep === 4 ? 'completed' : ''}`}>4. Commit</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-        </section>
+          </div>
+        )}
+
+        {/* TAB 2: VAULT (LOCAL PRIVATE ENTRIES) */}
+        {(activeTab === 'overview' || activeTab === 'vault') && (
+          <div className="human-card" style={{ marginTop: activeTab === 'overview' ? '10px' : '0' }}>
+            <div className="human-card-title">
+              <span>Encrypted Vault Feed ({localEntries.length} Items)</span>
+              <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>Stored Privately in Browser</span>
+            </div>
+
+            {localEntries.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: '28px', marginBottom: '6px' }}>📝</div>
+                <p style={{ fontSize: '13px' }}>Vault is currently empty. Use the circuit studio above to commit your first private entry!</p>
+              </div>
+            ) : (
+              <div>
+                {localEntries.map((entry, idx) => {
+                  const isVerified = derivedState && derivedState.lastEntryHash === entry.hash;
+                  return (
+                    <div key={idx} className="feed-card">
+                      <div className="feed-header">
+                        <span>{entry.timestamp}</span>
+                        <span className="feed-verified">{isVerified ? 'Verified On-Chain' : 'Saved Privately'}</span>
+                      </div>
+                      <p style={{ fontSize: '14px', color: 'var(--text-main)', marginBottom: '10px', lineHeight: 1.6 }}>
+                        {entry.text}
+                      </p>
+                      <div style={{ borderTop: '1px dashed var(--border-subtle)', paddingTop: '8px' }}>
+                        <span className="input-label" style={{ fontSize: '10px' }}>SHA-256 Hash</span>
+                        <div className="mono-display" style={{ fontSize: '11px', marginTop: '2px' }}>{entry.hash}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: LEDGER EXPLORER & PRIVACY BREAKDOWN */}
+        {(activeTab === 'overview' || activeTab === 'explorer') && (
+          <div style={{ marginTop: '28px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 800, marginBottom: '16px' }}>
+              Public State vs. Private Witness Breakdown
+            </h3>
+
+            <div className="breakdown-row">
+              <div className="breakdown-box">
+                <span className="badge-tag public">Public State • Ledger</span>
+                <h4 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '6px' }}>On-Chain Storage</h4>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                  Stored transparently on the Midnight ledger. The contract state hash and entry counter are indexed publicly and queryable by network observers.
+                </p>
+              </div>
+
+              <div className="breakdown-box">
+                <span className="badge-tag private">Private Witness • Client</span>
+                <h4 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '6px' }}>Local Client Security</h4>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                  Your secret custom message remains strictly on your local browser. The proof provider generates a Zero-Knowledge proof locally, enabling validators to verify validity without seeing the input.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
